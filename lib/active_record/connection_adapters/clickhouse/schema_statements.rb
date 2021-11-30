@@ -59,7 +59,7 @@ module ActiveRecord
           log(sql, "#{adapter_name} #{name}") do
             formatted_sql = apply_format(sql, format)
             request_params = @config || {}
-            res = @connection.post("/?#{request_params.merge(settings).to_param}", formatted_sql)
+            res = @connection.post("/?#{request_params.merge(settings).to_param}", formatted_sql, self.headers)
 
             process_response(res)
           end

@@ -178,6 +178,7 @@ module ActiveRecord
         @debug = !!full_config[:debug]
         @use_session = !!full_config[:use_session]
         @full_config = full_config
+        @headers = {}
 
         if @use_session
           config[:session_id] = generate_session_id
@@ -331,7 +332,13 @@ module ActiveRecord
       def headers= headers
         if @connection.kind_of? Cluster
           @connection.headers = headers
+        else
+          @headers = headers
         end
+      end
+
+      def headers
+        @headers
       end
 
       protected
