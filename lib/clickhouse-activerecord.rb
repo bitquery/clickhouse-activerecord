@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'clickhouse-activerecord/configuration'
 require 'active_record/connection_adapters/clickhouse_adapter'
 
 if defined?(Rails::Railtie)
@@ -10,5 +11,13 @@ if defined?(Rails::Railtie)
 end
 
 module ClickhouseActiverecord
+  class << self
+    def configuration
+      @configuration ||= Configuration.new
+    end
 
+    def configure
+      yield(configuration)
+    end
+  end
 end

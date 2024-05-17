@@ -99,9 +99,12 @@ module ActiveRecord
     end
 
     class ClusterConnections
-      attr_reader :urls
+      attr_reader :urls, :read_timeout, :write_timeout, :open_timeout
 
       def initialize params
+        @read_timeout = ClickhouseActiverecord.configuration.read_timeout
+        @write_timeout = ClickhouseActiverecord.configuration.write_timeout
+        @open_timeout = ClickhouseActiverecord.configuration.open_timeout
         @urls =  params[:urls] || [build_url(params)]
       end
 
@@ -155,6 +158,9 @@ module ActiveRecord
       def try_connect index
         url = URI urls[index]
         return Net::HTTP.start(url.host, url.port,
+                               read_timeout: self.read_timeout,
+                               write_timeout: self.write_timeout,
+                               open_timeout: self.open_timeout,
                                use_ssl: (url.scheme == 'https' || url.port == 443),
                                verify_mode: OpenSSL::SSL::VERIFY_NONE)
       end
