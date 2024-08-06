@@ -185,7 +185,7 @@ module ActiveRecord
         end
 
         begin
-          return connection.post url, data
+          return connection.post url, data, @adapter.headers
         ensure
           @connections.close connection
         end
@@ -211,7 +211,7 @@ module ActiveRecord
 
       include Clickhouse::SchemaStatements
 
-      attr_reader :stat,  :session_id
+      attr_reader :stat,  :session_id, :headers
 
       # Initializes and connects a Clickhouse adapter.
       def initialize(logger, connection_parameters, config, full_config)
@@ -232,8 +232,8 @@ module ActiveRecord
         @cluster = Cluster.new connection_parameters, self
       end
 
-      def with_statistics stat
-
+      def with_statistics stat, headers = {}
+        @headers = headers
         @saved_stat.push @stat
         @stat = stat
 
