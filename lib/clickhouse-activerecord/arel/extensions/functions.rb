@@ -7,7 +7,7 @@ module ClickhouseActiverecord::Arel::Extensions
                      'groupBitmapAnd','groupBitmapOr','groupBitmapXor',
                      'skewPop','skewSamp','kurtPop','kurtSamp',
                      'unique','uniqueExact','median','medianExact','varSamp','varPop',
-                     'stddevSamp','stddevPop'
+                     'stddevSamp','stddevPop','entropy'
                     ]
 
     STANDARD_ONE_ARGUMENT = ['minimum','maximum','average','sum']
