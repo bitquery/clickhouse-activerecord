@@ -18,6 +18,7 @@ require 'active_record/connection_adapters/clickhouse/schema_definitions'
 require 'active_record/connection_adapters/clickhouse/schema_creation'
 require 'active_record/connection_adapters/clickhouse/schema_statements'
 require 'net/http'
+require 'resolv'
 
 module ActiveRecord
   class Base
@@ -101,20 +102,25 @@ module ActiveRecord
     class ClusterConnections
       attr_reader :urls, :read_timeout, :write_timeout, :open_timeout
 
+      DNS_TTL = 180
+
       def initialize params
         @read_timeout = ClickhouseActiverecord.configuration.read_timeout
         @write_timeout = ClickhouseActiverecord.configuration.write_timeout
         @open_timeout = ClickhouseActiverecord.configuration.open_timeout
         @urls =  params[:urls] || [build_url(params)]
+        @dns_cache = {}
+        @dns_mutex = Mutex.new
       end
 
       def select_connection session_id
+        resolved = resolved_urls
         index = if session_id
-                  Digest::MD5.hexdigest(session_id).to_i(16) % urls.size
+                  Digest::MD5.hexdigest(session_id).to_i(16) % resolved.size
                 else
-                  Random.rand urls.size
+                  Random.rand resolved.size
                 end
-        connect(index)
+        connect(resolved, index)
       end
 
       def close connection
@@ -135,28 +141,58 @@ module ActiveRecord
            URI::HTTP.build(host: params[:host], port: params[:port])).to_s
       end
 
-
-      def connect index
-
-        begin
-          return try_connect(index)
-        rescue
-          raise if urls.size==1
-        end
-
-        (0...urls.count).each do |i|
-          next if i==index
-          begin
-            return try_connect(i)
-          rescue
-            raise if i == urls.count - 1 || index==urls.count - 1
-          end
-        end
-
+      def resolved_urls
+        urls.flat_map { |u| expand_dns(u) }
       end
 
-      def try_connect index
-        url = URI urls[index]
+      def expand_dns(url_string)
+        url = URI(url_string)
+        host = url.host
+        return [url_string] if host.nil? || host =~ Resolv::IPv4::Regex || host =~ Resolv::IPv6::Regex
+
+        ips = cached_resolve(host)
+        return [url_string] if ips.empty?
+        ips.map do |ip|
+          u = url.dup
+          u.host = ip
+          u.to_s
+        end
+      end
+
+      def cached_resolve(host)
+        @dns_mutex.synchronize do
+          entry = @dns_cache[host]
+          return entry[:ips] if entry && entry[:expires_at] > Time.now
+        end
+
+        ips = begin
+                Resolv.getaddresses(host).select { |a| a =~ Resolv::IPv4::Regex }.uniq
+              rescue StandardError
+                []
+              end
+
+        @dns_mutex.synchronize do
+          @dns_cache[host] = { ips: ips, expires_at: Time.now + DNS_TTL }
+        end
+
+        ips
+      end
+
+      def connect resolved, index
+        order = [index] + (0...resolved.count).reject { |i| i == index }
+        last_error = nil
+        order.each do |i|
+          begin
+            return try_connect(resolved, i)
+          rescue => e
+            last_error = e
+          end
+        end
+        raise last_error
+      end
+
+      def try_connect resolved, index
+        url = URI resolved[index]
         return Net::HTTP.start(url.host, url.port,
                                read_timeout: self.read_timeout,
                                write_timeout: self.write_timeout,
