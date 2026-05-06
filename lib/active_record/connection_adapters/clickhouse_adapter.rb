@@ -145,17 +145,22 @@ module ActiveRecord
         urls.flat_map { |u| expand_dns(u) }
       end
 
+      # Returns array of [connect_url, host_header] pairs.
+      # host_header is nil when no override is needed (literal IP, or DNS resolution failed).
       def expand_dns(url_string)
         url = URI(url_string)
         host = url.host
-        return [url_string] if host.nil? || host =~ Resolv::IPv4::Regex || host =~ Resolv::IPv6::Regex
+        return [[url_string, nil]] if host.nil? || host =~ Resolv::IPv4::Regex || host =~ Resolv::IPv6::Regex
 
         ips = cached_resolve(host)
-        return [url_string] if ips.empty?
+        return [[url_string, nil]] if ips.empty?
+
+        default_port = url.scheme == 'https' ? 443 : 80
+        host_header = url.port && url.port != default_port ? "#{host}:#{url.port}" : host
         ips.map do |ip|
           u = url.dup
           u.host = ip
-          u.to_s
+          [u.to_s, host_header]
         end
       end
 
@@ -192,13 +197,16 @@ module ActiveRecord
       end
 
       def try_connect resolved, index
-        url = URI resolved[index]
-        return Net::HTTP.start(url.host, url.port,
+        connect_url, host_header = resolved[index]
+        url = URI connect_url
+        conn = Net::HTTP.start(url.host, url.port,
                                read_timeout: self.read_timeout,
                                write_timeout: self.write_timeout,
                                open_timeout: self.open_timeout,
                                use_ssl: (url.scheme == 'https' || url.port == 443),
                                verify_mode: OpenSSL::SSL::VERIFY_NONE)
+        conn.instance_variable_set(:@_host_header_override, host_header) if host_header
+        conn
       end
 
 
@@ -221,7 +229,10 @@ module ActiveRecord
         end
 
         begin
-          return connection.post url, data, @adapter.headers
+          headers = @adapter.headers || {}
+          override = connection.instance_variable_get(:@_host_header_override)
+          headers = headers.merge('Host' => override) if override
+          return connection.post url, data, headers
         ensure
           @connections.close connection
         end
